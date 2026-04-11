@@ -1,0 +1,26 @@
+{
+  "name": "s3-reverse-proxy",
+  "version": "1.0.0",
+  "description": "Reverse proxy for serving static assets from S3 based on subdomains.",
+  "main": "index.js",
+  "scripts": {
+    "dev": "nodemon src/index.ts",
+    "start": "ts-node src/index.ts",
+    "build": "tsc"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^4.19.2",
+    "http-proxy": "^1.18.1"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/http-proxy": "^1.17.14",
+    "@types/node": "^20.12.7",
+    "nodemon": "^3.1.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.5"
+  }
+}
