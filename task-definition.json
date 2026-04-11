@@ -1,0 +1,34 @@
+{
+  "family": "build-server-task",
+  "networkMode": "awsvpc",
+  "executionRoleArn": "arn:aws:iam::551656632021:role/ecs-build-task-role",
+  "taskRoleArn": "arn:aws:iam::551656632021:role/ecs-build-task-role",
+  "containerDefinitions": [
+    {
+      "name": "build-server-container",
+      "image": "551656632021.dkr.ecr.ap-south-1.amazonaws.com/build-server:latest",
+      "cpu": 256,
+      "memory": 512,
+      "essential": true,
+      "environment": [
+        { "name": "GIT_REPOSITORY__URL", "value": "" },
+        { "name": "PROJECT_ID", "value": "" },
+        { "name": "AWS_ACCESS_KEY_ID", "value": "" },
+        { "name": "AWS_SECRET_ACCESS_KEY", "value": "" },
+        { "name": "REDIS_URL", "value": "" }
+      ],
+      "logConfiguration": {
+        "logDriver": "awslogs",
+        "options": {
+          "awslogs-group": "/ecs/build-server",
+          "awslogs-region": "ap-south-1",
+          "awslogs-stream-prefix": "ecs",
+          "awslogs-create-group": "true"
+        }
+      }
+    }
+  ],
+  "requiresCompatibilities": ["FARGATE"],
+  "cpu": "256",
+  "memory": "512"
+}
