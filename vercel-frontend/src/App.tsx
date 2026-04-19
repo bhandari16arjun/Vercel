@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { io } from 'socket.io-client'
-import { Github, Globe, Terminal, Loader2, CheckCircle2, AlertCircle, Clock } from 'lucide-react'
+import { Github, Globe, Terminal, Loader2, CheckCircle2, AlertCircle, Clock, Copy, Trash2, Check } from 'lucide-react'
 
 const socket = io('http://localhost:9000')
 
@@ -14,6 +14,7 @@ function App() {
   const [status, setStatus] = useState<DeploymentStatus>('idle')
   const [deployUrl, setDeployUrl] = useState('')
   const [projectSlug, setProjectSlug] = useState('')
+  const [isCopied, setIsCopied] = useState(false)
   
   const logContainerRef = useRef<HTMLDivElement>(null)
 
@@ -26,6 +27,23 @@ function App() {
   useEffect(() => {
     scrollToBottom()
   }, [logs, scrollToBottom])
+
+  // --- FEATURE: Project Name Auto-fill ---
+  useEffect(() => {
+    if (!repoUrl) return
+    try {
+        const url = new URL(repoUrl)
+        if (url.hostname === 'github.com') {
+            const parts = url.pathname.split('/')
+            const projectName = parts[parts.length - 1] || parts[parts.length - 2]
+            if (projectName && !customSlug) {
+                setCustomSlug(projectName.toLowerCase())
+            }
+        }
+    } catch (e) {
+        // Not a valid URL yet
+    }
+  }, [repoUrl, customSlug])
 
   useEffect(() => {
     const handleMessage = (data: string) => {
@@ -80,6 +98,13 @@ function App() {
       setLogs((prev) => [...prev, 'Error: Failed to trigger deployment.'])
       setStatus('error')
     }
+  }
+
+  // --- FEATURE: Copy to Clipboard ---
+  const copyToClipboard = () => {
+    navigator.clipboard.writeText(deployUrl)
+    setIsCopied(true)
+    setTimeout(() => setIsCopied(false), 2000)
   }
 
   const getStatusConfig = () => {
@@ -183,17 +208,29 @@ function App() {
                     </p>
                   </div>
                 </div>
-                {status === 'success' && deployUrl && (
-                  <a
-                    href={deployUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="bg-emerald-500 text-black font-bold py-2 px-6 rounded-lg hover:bg-emerald-400 transition-all flex items-center gap-2 text-sm"
-                  >
-                    Visit Site
-                    <Globe className="w-4 h-4" />
-                  </a>
-                )}
+                <div className="flex items-center gap-3">
+                    {status === 'success' && deployUrl && (
+                    <>
+                        <button
+                            onClick={copyToClipboard}
+                            className="bg-zinc-800 text-zinc-300 hover:text-white p-2 rounded-lg transition-all flex items-center gap-2 text-sm border border-zinc-700"
+                            title="Copy URL"
+                        >
+                            {isCopied ? <Check className="w-4 h-4 text-emerald-500" /> : <Copy className="w-4 h-4" />}
+                            {isCopied ? 'Copied' : 'Copy URL'}
+                        </button>
+                        <a
+                            href={deployUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="bg-emerald-500 text-black font-bold py-2 px-6 rounded-lg hover:bg-emerald-400 transition-all flex items-center gap-2 text-sm"
+                        >
+                            Visit Site
+                            <Globe className="w-4 h-4" />
+                        </a>
+                    </>
+                    )}
+                </div>
              </section>
           )}
 
@@ -203,13 +240,22 @@ function App() {
                 <Terminal className="w-3 h-3" />
                 Build Logs {projectSlug && `— ${projectSlug}`}
               </div>
-              <div className="flex gap-1.5">
-                {statusConfig && <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full ${statusConfig.bg} ${statusConfig.color} border ${statusConfig.border}`}>
-                  <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse"></span>
-                  <span className="text-[10px] font-bold uppercase tracking-wider">{statusConfig.text}</span>
-                </div>}
-                <div className="w-2.5 h-2.5 rounded-full bg-zinc-800"></div>
-                <div className="w-2.5 h-2.5 rounded-full bg-zinc-800"></div>
+              <div className="flex items-center gap-4">
+                <button 
+                  onClick={() => setLogs([])}
+                  className="text-zinc-500 hover:text-zinc-300 transition-colors"
+                  title="Clear Logs"
+                >
+                    <Trash2 className="w-3.5 h-3.5" />
+                </button>
+                <div className="flex gap-1.5">
+                    {statusConfig && <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full ${statusConfig.bg} ${statusConfig.color} border ${statusConfig.border}`}>
+                    <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse"></span>
+                    <span className="text-[10px] font-bold uppercase tracking-wider">{statusConfig.text}</span>
+                    </div>}
+                    <div className="w-2.5 h-2.5 rounded-full bg-zinc-800"></div>
+                    <div className="w-2.5 h-2.5 rounded-full bg-zinc-800"></div>
+                </div>
               </div>
             </div>
             <div 
