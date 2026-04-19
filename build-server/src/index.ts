@@ -28,8 +28,15 @@ function publishLog(log: string) {
     });
 }
 
+async function publishStatus(status: 'building' | 'success' | 'error') {
+    await publisher.rpush(`logs:${PROJECT_ID}`, JSON.stringify({ status })).catch(err => {
+        // console.error('Failed to publish status to Redis:', err.message);
+    });
+}
+
 async function init() {
     console.log('Build Server Started...');
+    await publishStatus('building');
     publishLog('Build Server Started...');
 
     const outDirPath = path.join(__dirname, 'output');
@@ -91,6 +98,8 @@ async function init() {
                 const errorMsg = `Error: Build failed with exit code ${code}. Check logs for memory/other errors.`;
                 console.error(errorMsg);
                 publishLog(`error: ${errorMsg}`);
+                await publishStatus('error');
+                setTimeout(() => process.exit(1), 1000);
                 return;
             }
 
@@ -114,6 +123,8 @@ async function init() {
                 const errorMsg = `Error: No build output folder (dist, build, .next, etc.) found in ${rootDir}`;
                 console.error(errorMsg);
                 publishLog(`error: ${errorMsg}`);
+                await publishStatus('error');
+                setTimeout(() => process.exit(1), 1000);
                 return;
             }
 
@@ -150,7 +161,10 @@ async function init() {
 
             console.log('All Files Uploaded. Deployment Complete!');
             publishLog('All Files Uploaded. Deployment Complete!');
-            process.exit(0);
+            await publishStatus('success');
+            
+            // Wait for REST calls to finish before exiting container
+            setTimeout(() => process.exit(0), 1500);
         });
     });
 }

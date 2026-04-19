@@ -25,7 +25,12 @@ const restClient = new UpstashRedis({
 const ecs = new ECS({
     region: 'ap-south-1',
     accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY
+    secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
+    httpOptions: {
+        timeout: 10000,
+        connectTimeout: 10000
+    },
+    maxRetries: 3
 } as any);
 
 const config = {
@@ -91,9 +96,17 @@ io.on('connection', (socket: any) => {
                 const logs: any[] = await restClient.lrange(channel, lastIndex, -1);
                 
                 if (logs && logs.length > 0) {
-                    // Logs are now in order (RPUSH), so we don't need reverse()
                     logs.forEach(log => {
-                        socket.emit('message', typeof log === 'string' ? log : JSON.stringify(log));
+                        const logStr = typeof log === 'string' ? log : JSON.stringify(log);
+                        socket.emit('message', logStr);
+                        
+                        try {
+                            const parsed = JSON.parse(logStr);
+                            if (parsed.status === 'success' || parsed.status === 'error') {
+                                console.log(`Stopping polling for ${channel} due to status: ${parsed.status}`);
+                                clearInterval(interval);
+                            }
+                        } catch (e) {}
                     });
                     
                     lastIndex += logs.length;

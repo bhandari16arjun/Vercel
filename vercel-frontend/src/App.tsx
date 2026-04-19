@@ -1,15 +1,17 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { io } from 'socket.io-client'
-import { Github, Globe, Terminal, Loader2 } from 'lucide-react'
+import { Github, Globe, Terminal, Loader2, CheckCircle2, AlertCircle, Clock } from 'lucide-react'
 
 const socket = io('http://localhost:9000')
+
+type DeploymentStatus = 'idle' | 'queued' | 'building' | 'success' | 'error';
 
 function App() {
   const [repoUrl, setRepoUrl] = useState('')
   const [customSlug, setCustomSlug] = useState('')
   const [rootPrefix, setRootPrefix] = useState('')
   const [logs, setLogs] = useState<string[]>([])
-  const [isDeploying, setIsDeploying] = useState(false)
+  const [status, setStatus] = useState<DeploymentStatus>('idle')
   const [deployUrl, setDeployUrl] = useState('')
   const [projectSlug, setProjectSlug] = useState('')
   
@@ -31,6 +33,9 @@ function App() {
       if (parsedData.log) {
         setLogs((prev) => [...prev, parsedData.log])
       }
+      if (parsedData.status) {
+        setStatus(parsedData.status as DeploymentStatus)
+      }
     }
 
     socket.on('message', handleMessage)
@@ -43,7 +48,7 @@ function App() {
   const handleDeploy = async () => {
     if (!repoUrl) return
 
-    setIsDeploying(true)
+    setStatus('queued')
     setLogs(['Initiating deployment...'])
     setDeployUrl('')
 
@@ -73,9 +78,21 @@ function App() {
     } catch (error) {
       console.error('Deployment failed:', error)
       setLogs((prev) => [...prev, 'Error: Failed to trigger deployment.'])
-      setIsDeploying(false)
+      setStatus('error')
     }
   }
+
+  const getStatusConfig = () => {
+    switch (status) {
+      case 'queued': return { icon: <Clock className="w-4 h-4" />, text: 'Queued', color: 'text-amber-400', bg: 'bg-amber-400/10', border: 'border-amber-400/20' }
+      case 'building': return { icon: <Loader2 className="w-4 h-4 animate-spin" />, text: 'Building', color: 'text-blue-400', bg: 'bg-blue-400/10', border: 'border-blue-400/20' }
+      case 'success': return { icon: <CheckCircle2 className="w-4 h-4" />, text: 'Ready', color: 'text-emerald-400', bg: 'bg-emerald-400/10', border: 'border-emerald-400/20' }
+      case 'error': return { icon: <AlertCircle className="w-4 h-4" />, text: 'Error', color: 'text-rose-400', bg: 'bg-rose-400/10', border: 'border-rose-400/20' }
+      default: return null
+    }
+  }
+
+  const statusConfig = getStatusConfig()
 
   return (
     <div className="min-h-screen bg-black text-zinc-200 font-sans selection:bg-zinc-800">
@@ -136,10 +153,10 @@ function App() {
               </div>
               <button
                 onClick={handleDeploy}
-                disabled={isDeploying && !deployUrl}
+                disabled={status !== 'idle' && status !== 'success' && status !== 'error'}
                 className="bg-white text-black hover:bg-zinc-200 disabled:bg-zinc-800 disabled:text-zinc-500 font-bold py-3 px-8 rounded-lg transition-all flex items-center justify-center gap-2 w-full md:w-max ml-auto"
               >
-                {isDeploying && !deployUrl ? (
+                {status !== 'idle' && status !== 'success' && status !== 'error' ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
                     Deploying
@@ -151,27 +168,33 @@ function App() {
             </div>
           </section>
 
-          {deployUrl && (
-            <section className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-6 flex flex-col md:flex-row items-center justify-between gap-4 animate-in fade-in slide-in-from-bottom-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-emerald-500/10 rounded-full flex items-center justify-center text-emerald-500">
-                  <Globe className="w-5 h-5" />
+          {statusConfig && (
+             <section className={`border ${statusConfig.border} ${statusConfig.bg} rounded-xl p-6 flex flex-col md:flex-row items-center justify-between gap-4 animate-in fade-in slide-in-from-bottom-4`}>
+                <div className="flex items-center gap-3">
+                  <div className={`w-10 h-10 ${statusConfig.bg} rounded-full flex items-center justify-center ${statusConfig.color}`}>
+                    {statusConfig.icon}
+                  </div>
+                  <div>
+                    <h3 className={`font-semibold ${statusConfig.color}`}>Deployment {statusConfig.text}</h3>
+                    <p className={`${statusConfig.color} opacity-60 text-sm`}>
+                      {status === 'success' ? 'Your project is live at the URL below.' : 
+                       status === 'error' ? 'Something went wrong during the build process.' : 
+                       'Please wait while we process your deployment.'}
+                    </p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="font-semibold text-emerald-500">Deployment Successful</h3>
-                  <p className="text-emerald-500/60 text-sm">Your project is live at the URL below.</p>
-                </div>
-              </div>
-              <a
-                href={deployUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="bg-emerald-500 text-black font-bold py-2 px-6 rounded-lg hover:bg-emerald-400 transition-all flex items-center gap-2 text-sm"
-              >
-                Visit Site
-                <Globe className="w-4 h-4" />
-              </a>
-            </section>
+                {status === 'success' && deployUrl && (
+                  <a
+                    href={deployUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="bg-emerald-500 text-black font-bold py-2 px-6 rounded-lg hover:bg-emerald-400 transition-all flex items-center gap-2 text-sm"
+                  >
+                    Visit Site
+                    <Globe className="w-4 h-4" />
+                  </a>
+                )}
+             </section>
           )}
 
           <section className="bg-zinc-950 border border-zinc-800 rounded-xl overflow-hidden flex flex-col shadow-inner">
@@ -181,7 +204,10 @@ function App() {
                 Build Logs {projectSlug && `— ${projectSlug}`}
               </div>
               <div className="flex gap-1.5">
-                <div className="w-2.5 h-2.5 rounded-full bg-zinc-800"></div>
+                {statusConfig && <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-full ${statusConfig.bg} ${statusConfig.color} border ${statusConfig.border}`}>
+                  <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse"></span>
+                  <span className="text-[10px] font-bold uppercase tracking-wider">{statusConfig.text}</span>
+                </div>}
                 <div className="w-2.5 h-2.5 rounded-full bg-zinc-800"></div>
                 <div className="w-2.5 h-2.5 rounded-full bg-zinc-800"></div>
               </div>
