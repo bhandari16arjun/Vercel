@@ -1,6 +1,7 @@
 import express from 'express';
+import cors from 'cors';
 import { ECS } from 'aws-sdk';
-import Redis from 'ioredis';
+import { Redis as UpstashRedis } from '@upstash/redis';
 import { Server } from 'socket.io';
 import http from 'http';
 import dotenv from 'dotenv';
@@ -8,12 +9,18 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 const app = express();
+app.use(express.json());
+app.use(cors());
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
 
 const PORT = process.env.PORT || 9000;
 
-const subscriber = new Redis(process.env.REDIS_URL || '');
+// Upstash REST client (Uses HTTPS, bypasses protocol blocks)
+const restClient = new UpstashRedis({
+    url: process.env.UPSTASH_REDIS_REST_URL!,
+    token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+});
 
 const ecs = new ECS({
     region: 'ap-south-1',
@@ -22,19 +29,16 @@ const ecs = new ECS({
 } as any);
 
 const config = {
-    CLUSTER: process.env.CLUSTER,
-    TASK_DEFINITION: process.env.TASK_DEFINITION,
-    SECURITY_GROUP: process.env.SECURITY_GROUP,
+    CLUSTER: process.env.CLUSTER!,
+    TASK_DEFINITION: process.env.TASK_DEFINITION!,
+    SECURITY_GROUP: process.env.SECURITY_GROUP!,
     SUBNETS: process.env.SUBNETS ? process.env.SUBNETS.split(',') : []
 };
 
-app.use(express.json());
-
 app.post('/project', async (req: any, res: any) => {
-    const { gitURL, slug } = req.body;
-    const projectSlug = slug || `project-${Math.random().toString(36).substr(2, 9)}`;
+    const { gitURL, slug, rootPrefix } = req.body;
+    const projectSlug = (slug || `project-${Math.random().toString(36).substr(2, 9)}`).toLowerCase();
 
-    // Spin up the ECS Container
     const params: any = {
         cluster: config.CLUSTER,
         taskDefinition: config.TASK_DEFINITION,
@@ -56,7 +60,9 @@ app.post('/project', async (req: any, res: any) => {
                         { name: 'PROJECT_ID', value: projectSlug },
                         { name: 'AWS_ACCESS_KEY_ID', value: process.env.AWS_ACCESS_KEY_ID },
                         { name: 'AWS_SECRET_ACCESS_KEY', value: process.env.AWS_SECRET_ACCESS_KEY },
-                        { name: 'REDIS_URL', value: process.env.REDIS_URL }
+                        { name: 'UPSTASH_REDIS_REST_URL', value: process.env.UPSTASH_REDIS_REST_URL },
+                        { name: 'UPSTASH_REDIS_REST_TOKEN', value: process.env.UPSTASH_REDIS_REST_TOKEN },
+                        { name: 'ROOT_PROJECT_DIR', value: rootPrefix || '' }
                     ]
                 }
             ]
@@ -65,27 +71,39 @@ app.post('/project', async (req: any, res: any) => {
 
     try {
         await ecs.runTask(params).promise();
-        return res.json({ status: 'queued', data: { projectSlug, url: `http://${projectSlug}.localhost:8000` } });
-    } catch (error) {
-        console.error('Error running ECS task:', error);
-        return res.status(500).json({ error: 'Failed to queue deployment' });
+        return res.json({ status: 'queued', data: { projectSlug, url: `http://${projectSlug}.lvh.me:8000` } });
+    } catch (error: any) {
+        console.error('Error running ECS task:', error.message);
+        return res.status(500).json({ error: 'Failed to queue deployment', details: error.message });
     }
 });
-
-async function initRedisSubscribe() {
-    console.log('Subscribed to logs...');
-    subscriber.psubscribe('logs:*');
-    subscriber.on('pmessage', (pattern: string, channel: string, message: string) => {
-        io.to(channel).emit('message', message);
-    });
-}
-
-initRedisSubscribe();
 
 io.on('connection', (socket: any) => {
     socket.on('subscribe', (channel: string) => {
         socket.join(channel);
         socket.emit('message', JSON.stringify({ log: `Joined ${channel}` }));
+        
+        let lastIndex = 0;
+        const interval = setInterval(async () => {
+            try {
+                // Poll every 500ms for high speed
+                // Fetch logs from lastIndex to the end of the list
+                const logs: any[] = await restClient.lrange(channel, lastIndex, -1);
+                
+                if (logs && logs.length > 0) {
+                    // Logs are now in order (RPUSH), so we don't need reverse()
+                    logs.forEach(log => {
+                        socket.emit('message', typeof log === 'string' ? log : JSON.stringify(log));
+                    });
+                    
+                    lastIndex += logs.length;
+                }
+            } catch (err) {
+                // Silently handle polling errors
+            }
+        }, 500); // 500ms for much faster updates
+
+        socket.on('disconnect', () => clearInterval(interval));
     });
 });
 

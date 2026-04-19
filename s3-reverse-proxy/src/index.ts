@@ -13,10 +13,10 @@ app.use((req, res) => {
     const hostname = req.hostname;
     const subdomain = hostname.split('.')[0];
 
-    // Map project-id.localhost to S3 path: __outputs/<project-id>/
-    const target = `${BASE_PATH}/${subdomain}`;
+    // The target should just be the S3 host. We will rewrite the path in proxyReq.
+    const target = 'https://vercel-clone-outputs-12042026.s3.ap-south-1.amazonaws.com';
 
-    console.log(`Proxying request for ${hostname} to ${target}${req.url}`);
+    console.log(`Proxying request for ${hostname} to ${target}/__outputs/${subdomain}${req.url}`);
 
     return proxy.web(req, res, { target, changeOrigin: true });
 });
@@ -30,10 +30,18 @@ proxy.on('error', (err, req, res) => {
 });
 
 proxy.on('proxyReq', (proxyReq, req, res) => {
-    const url = req.url;
-    if (url === '/') {
-        proxyReq.path += 'index.html';
+    const hostname = req.headers.host || '';
+    const subdomain = hostname.split('.')[0];
+    
+    // Manually rewrite the path to include the bucket prefix
+    let newPath = `/__outputs/${subdomain}${proxyReq.path}`;
+    
+    // If the path is empty or just '/', serve index.html
+    if (proxyReq.path === '/' || proxyReq.path === '') {
+        newPath = `/__outputs/${subdomain}/index.html`;
     }
+    
+    proxyReq.path = newPath;
 });
 
 app.listen(PORT, () => {
